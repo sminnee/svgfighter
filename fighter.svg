@@ -1,0 +1,776 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" onload="init()">
+
+<script type="text/javascript">
+<![CDATA[
+
+	var SVG_NS ="http://www.w3.org/2000/svg";
+	var ANG_TO_RAD = 3.1415962535 / 180;
+	
+	var fighter, fighter2;
+	var GAME_OVER = false;
+	var GAME_WIDTH = 0;
+	var GAME_HEIGHT = 0;
+	
+	var MAX_AMMO = 20;
+	var MAX_SHIELD = 20;
+	
+	var MAX_THRUST = 100;
+	
+	var INPUT_RESPONSIVENESS = 1; // The input timer runs 5 times as quickly
+
+	// Keys currently being pressed
+	var currentlyPressing = Array();
+
+	function window_keydown(evt) {
+		currentlyPressing[evt.keyCode] = true;
+		return false;
+	}
+	function window_keyup(evt) {
+		currentlyPressing[evt.keyCode] = false;
+		return false;
+	}
+	
+	window.onkeydown = window_keydown;
+	window.onkeyup = window_keyup;
+	
+	// Different key maps
+	keyMaps = {
+		1 : { // Arrow Keys + Enter
+			37 : 'turnLeft',
+			39 : 'turnRight',
+			38 : 'thrust',
+			40 : 'reverseThrust',
+			13 : 'shoot'
+		},
+		2 : { // WASD + Ctrl
+			65 : 'turnLeft',
+			68 : 'turnRight',
+			87 : 'thrust',
+			83 : 'reverseThrust',
+			17 : 'shoot'
+		},
+		3 : { // Numeric keypad (with numlock) + 0
+			104 : 'thrust',
+			101 : 'reverseThrust',
+			98 : 'reverseThrust',
+			100 : 'turnLeft',
+			102 : 'turnRight',
+			96 : 'shoot'
+		},
+		4 : { // UHJK + Y
+			85 : 'thrust',
+			74 : 'reverseThrust',
+			72 : 'turnLeft',
+			75 : 'turnRight',
+			89 : 'shoot',
+		},
+	}
+	
+	// Called by the tick() function.  uses the keymaps to call methods on objects
+	function handleKeyPress(multiplier, currentTimestep) {
+		var i,j,fighter;
+		for(i in keyMaps) {
+			if(fighter = Fighter.all[keyMaps[i].controls]) {
+				for(j in keyMaps[i]) {
+					if(currentlyPressing[j])
+						fighter[keyMaps[i][j]](multiplier, currentTimestep);
+				}
+			}
+		}
+	}
+	
+	/*
+	 * FIGHTER CLASS
+	 */
+	function Fighter(name,x,y,el,statusEl) {
+		// Keep track of all bullets
+		this.allIdx = Fighter.all.length;
+		Fighter.all[this.allIdx] = this;
+		if(Fighter.all.count) Fighter.all.count++; 
+		else Fighter.all.count = 1;
+		
+		// Cross linking with the DOM objects
+		this.el = el;
+		this.el.obj = this;
+		this.statusEl = statusEl;
+		this.statusEl.obj = this;
+
+		// Get status subcomponent	s	
+		if(typeof statusEl.getElementsByTagName != 'undefined') {
+			var allItems = statusEl.getElementsByTagName('*');
+		} else {
+			var allItems = statusEl.getElementsByTagNameNS(SVG_NS,'*');
+		}
+		var i;
+		for(i=0;i<allItems.length;i++) {
+			if(allItems.item(i).getAttribute('id') == 'shield') this.shieldEl = allItems.item(i);
+			if(allItems.item(i).getAttribute('id') == 'ammo') this.ammoEl = allItems.item(i);
+			if(allItems.item(i).getAttribute('id') == 'thrust') this.thrustEl = allItems.item(i);
+			if(allItems.item(i).getAttribute('id') == 'radar') this.radarEl = allItems.item(i);
+		}
+
+		// Get ship subcomponent		
+		if(typeof statusEl.getElementsByTagName != 'undefined') {
+			var allItems = el.getElementsByTagName('*');
+		} else {
+			var allItems = el.getElementsByTagNameNS(SVG_NS,'*');
+		}
+		var i;
+		for(i=0;i<allItems.length;i++) {
+			if(allItems.item(i).getAttribute('id') == 'shield') this.shieldShipEl = allItems.item(i);
+			if(allItems.item(i).getAttribute('id') == 'thrust') this.thrustShipEl = allItems.item(i);
+			if(allItems.item(i).getAttribute('id') == 'reverseThrust') this.reverseThrustShipEl = allItems.item(i);
+		}
+		
+		this.shield = MAX_SHIELD;
+		this.thrustEnergy = MAX_THRUST;
+		this.ammo = MAX_AMMO;
+
+		this.shieldsUp = false;
+		this.thrustersOn = false;
+		
+		/*this.shieldEl.setAttribute('transform', 'scale(0.5)');*/
+	
+		this.name = name;
+		this.angle = 0;
+		this.x = x;
+		this.y = y;
+		// this.speed = 0;
+		this.speedX = 0.0;
+		this.speedY = 0.0;
+		this.el.setAttribute("transform", "translate(" + this.x + "," + this.y + ") scale(20)");
+		
+		// Unsure why this is necessary
+		var item;
+		for(item in Fighter.protoype) this[item] = Fighter.protoype[item];
+	}
+	Fighter.all = Array();
+	
+		Fighter.protoype = { 
+		turnLeft : function(multiplier,timestep) {
+			this.angle -= 10*multiplier;
+			this.update();
+		},
+		turnRight : function(multiplier,timestep) {
+			this.angle += 10*multiplier;
+			this.update();
+		},
+		thrust : function(multiplier,timestep) {
+			if(this.thrustEnergy >= (3*multiplier)) {
+				this.thrustEnergy -= (3*multiplier);
+				this.speedX += Math.sin(this.angle * ANG_TO_RAD) * 2 * multiplier;
+				this.speedY -= Math.cos(this.angle * ANG_TO_RAD) * 2 * multiplier;
+				this.thrustersOn = true;
+			}
+		},		
+		reverseThrust : function(multiplier,timestep) {
+			if(this.thrustEnergy >= (3*multiplier)) {
+				this.thrustEnergy -= (3*multiplier);
+				this.speedX += Math.sin(this.angle * ANG_TO_RAD) * -2 * multiplier;
+				this.speedY -= Math.cos(this.angle * ANG_TO_RAD) * -2 * multiplier;
+				this.reverseThrustersOn = true;
+			}
+		},
+		shoot : function(multiplier,timestep) {
+			if(timestep == 0 && this.ammo >= 5) {
+				this.ammo-=5;
+				var bulletSpeedX = this.speedX + Math.sin(this.angle * ANG_TO_RAD) * 20;
+				var bulletSpeedY = this.speedY - Math.cos(this.angle * ANG_TO_RAD) * 20;
+				var bulletStartX = this.x /*+ this.speedX*/ + Math.sin(this.angle * ANG_TO_RAD) * 20;
+				var bulletStartY = this.y /*+ this.speedY*/ - Math.cos(this.angle * ANG_TO_RAD) * 20;
+				new Bullet(bulletStartX, bulletStartY, bulletSpeedX, bulletSpeedY, this.angle);
+			}
+		},
+		
+		/**
+		 * Record a hit
+		 */
+		recordHit : function(val) {
+			if(val == null) val = 1;
+			this.shield = Math.max(0,this.shield-val);
+			if(this.shield <= 0) this.kill();
+			this.updateStatus();
+			this.shieldsUp = true;
+		},		
+		
+		/**
+		 * Check for collisions
+		 * done in a seperate function to prevent issues when moving fast
+		 */
+		collisionTick : function() {
+			// Check all fighters for collision
+			var i;
+			for(i in Fighter.all) {
+				if(i != 'length' && i != 'count') {
+					if(Fighter.all[i] != this && Fighter.all[i].hasCollided(this.x,this.y,20)) {
+						Fighter.all[i].recordHit(MAX_SHIELD / 3);
+						this.recordHit(MAX_SHIELD / 3);
+						
+						var tmp;
+						tmp = this.speedX;
+						this.speedX = Fighter.all[i].speedX;
+						Fighter.all[i].speedX = tmp;
+						tmp = this.speedY;
+						this.speedY = Fighter.all[i].speedY;
+						Fighter.all[i].speedY = tmp;
+						
+						this.tick();
+						Fighter.all[i].tick();
+						return;
+					}
+				}
+			}
+		},
+				
+		tick : function() {
+
+			if(this.ammo < MAX_AMMO) {
+				this.ammo++;
+				this.ammoEl.setAttribute('transform', 'scale(' + (this.ammo / MAX_AMMO) + ',1)');
+			}
+			if(this.thrustEnergy < MAX_THRUST) {
+				this.thrustEnergy++;
+				this.thrustEl.setAttribute('transform', 'scale(' + (this.thrustEnergy / MAX_THRUST) + ',1)');
+			}		
+
+			this.x = addX(this.x, this.speedX);
+			this.y = addY(this.y, this.speedY);
+			this.update();
+			
+			this.shieldsUp = false;
+			this.thrustersOn = false;
+			this.reverseThrustersOn = false;
+		},
+		update : function() {
+			// Set the transformation
+			var t = 'translate(' + this.x + ',' + this.y + ') rotate(' + this.angle + ') scale(20)';
+			this.el.setAttribute("transform", t);
+			this.radarEl.setAttribute("transform","translate(75,75) rotate(" + this.angle + ") scale(20)");
+			
+			this.shieldShipEl.setAttribute('display',this.shieldsUp ? 'inline' : 'none');
+			this.thrustShipEl.setAttribute('display',this.thrustersOn ? 'inline' : 'none');
+			this.reverseThrustShipEl.setAttribute('display',this.reverseThrustersOn ? 'inline' : 'none');
+		},
+		updateStatus : function() {
+			// Status bars
+			this.shieldEl.setAttribute('transform', 'scale(' + (this.shield / MAX_SHIELD) + ',1)');
+		},
+		
+		/**
+		 * Returns true if the given point has collided with the fighter
+		 */
+		hasCollided : function(x,y,radius) {
+			var dX = (x-this.x);
+			var dY = (y-this.y);
+
+			return (dX*dX + dY*dY) < (20+radius)*(20+radius);
+		},
+
+		/**
+		 * Remove this object altogether
+		 */
+		kill : function() {
+			delete Fighter.all[this.allIdx];
+			this.el.parentNode.removeChild(this.el);
+			if(this == fighter) fighter = null;
+			else if(this == fighter2) fighter2 = null;
+			Fighter.all.count--;
+		},
+		
+		controlledBy : function(controller) {
+			controller.controls = this.allIdx;
+		}
+	};
+	
+	/*
+	 * BULLET CLASS
+	 */
+	function Bullet(x, y, speedX, speedY, angle) {
+		// Keep track of all bullets
+		this.allIdx = Bullet.all.length;
+		Bullet.all[this.allIdx] = this;
+
+		// Cross linking with the DOM objects
+		this.el = document.getElementById('tmplBullet').cloneNode(true);
+		document.getElementById('gameObjects').appendChild(this.el);
+		this.el.obj = this;
+		
+		// Populate the DOM object
+		this.el.setAttribute("r","2");
+		this.el.setAttribute("cx","0");
+		this.el.setAttribute("cy","0");
+		this.el.setAttribute("line","#FFFFFF");
+		this.el.setAttribute("fill","#FFFFFF");
+	
+		this.x = x;
+		this.y = y;
+		this.speedX = speedX;
+		this.speedY = speedY;
+		this.angle = angle;
+		
+		this.life = 20;
+		
+		this.update();
+
+		// Unsure why this is necessary
+		var item;
+		for(item in Bullet.protoype) this[item] = Bullet.protoype[item];		
+	}
+	Bullet.all = Array();
+	
+	Bullet.prototype = {
+		/**
+		 * Timestep function
+		 */
+		tick : function() {
+			if(--this.life <= 0) {
+				this.kill();
+			} else {
+				this.x = addX(this.x, this.speedX)
+				this.y = addY(this.y, this.speedY);
+				this.update();
+			}
+		},
+		
+		collisionTick : function() {
+			// Check all fighters for collision
+			var i;
+			for(i in Fighter.all) {
+				if(i != 'length' && i != 'count') {
+					if(Fighter.all[i].hasCollided(this.x,this.y,0)) {
+						Fighter.all[i].recordHit();
+						this.kill();
+						return;
+					}
+				}
+			}
+		},
+
+		update : function() {
+			// Set the transformation
+			var t = 'translate(' + this.x + ',' + this.y + ') rotate(' + this.angle + ')';
+			this.el.setAttribute("transform", t);
+		},
+		
+		/**
+		 * Remove this object altogether
+		 */
+		kill : function() {
+			delete Bullet.all[this.allIdx];
+			this.el.parentNode.removeChild(this.el);
+		}
+	}
+	
+	/**
+	 * Run the tick() methods for all bullets and fighters
+	 */
+	function tickAll() {
+		var i;
+		for(i in Bullet.all) {
+			if(i !== 'length' && i != 'count') Bullet.all[i].tick();
+		}
+		for(i in Fighter.all) {
+			if(i !== 'length' && i != 'count') Fighter.all[i].tick();
+		}
+
+		for(i in Bullet.all) {
+			if(i !== 'length' && i != 'count') Bullet.all[i].collisionTick();
+		}
+		for(i in Fighter.all) {
+			if(i !== 'length' && i != 'count') Fighter.all[i].collisionTick();
+		}
+	}
+	
+	/**
+	 * Create a new SVG element and append it to the document tree
+	 */
+	function newElement(tagName) {
+		var tag = document.createElementNS(SVG_NS, tagName);	
+		document.getElementById('gameObjects').appendChild(tag);
+		return tag;
+	}
+	
+	function debug(msg) {
+		var m = document.getElementById('msg');
+		var i;
+		while(m.childNodes.length > 0) m.removeChild(m.childNodes[0]);
+		m.appendChild(document.createTextNode(msg));
+	}
+	
+	function addX(current, change) {
+		if(GAME_WIDTH == -1) return current + change;
+		else return (current + change + GAME_WIDTH) % GAME_WIDTH;
+	}
+	function addY(current, change) {
+		if(GAME_HEIGHT == -1) return current + change;
+		else return (current + change + GAME_HEIGHT) % GAME_HEIGHT;
+	}
+	
+	/*
+	 * Adjust the viewport to see all fighters
+	 */
+	function adjustViewport() {
+		if(Fighter.all.count > 0) {
+			var minX, maxX, minY, maxY;
+			minX = maxX = minY = maxY = null;
+			
+			var avgX = 0;
+			var avgY = 0;
+			var count = 0;
+			
+	
+			for(i in Fighter.all) if(i != 'length' && i != 'count') {
+				// Get the min and max fighter co-ordinates
+				if(minX == null || Fighter.all[i].x < minX) minX = Fighter.all[i].x;
+				if(maxX == null || Fighter.all[i].x > maxX) maxX = Fighter.all[i].x;
+				if(minY == null || Fighter.all[i].y < minY) minY = Fighter.all[i].y;
+				if(maxY == null || Fighter.all[i].y > maxY) maxY = Fighter.all[i].y;
+				
+				// Get mid point
+				count++;
+				avgX += Fighter.all[i].x;
+				avgY += Fighter.all[i].y;
+			}
+
+			// It's a mid-point rather than an average
+			avgX = (maxX + minX)/ 2;
+			avgY = (maxY + minY)/ 2;
+			
+			
+			var scaleX = WINDOW_WIDTH / (maxX - minX + 60);
+			var scaleY = WINDOW_HEIGHT / (maxY - minY + 60);
+
+			var scale = 1/getNextHighestPowerOf2(1/Math.min(scaleX, scaleY));
+
+
+			//debug(avgX + ' , ' + avgY);
+			// Move the entire universe if it's too far out of whack
+			/*
+			if(Math.abs(avgX) > 10000 || Math.abs(avgY) > 10000) {
+				moveUniverse(-avgX,-avgY);
+				avgX = 0;
+				avgY = 0;
+			}
+			*/
+	
+			var translateX = -(avgX * scale) + WINDOW_WIDTH / 2;
+			var translateY = -(avgY * scale) + WINDOW_HEIGHT / 2;
+			
+			document.getElementById('gameObjects').setAttribute('transform', 'translate(' + translateX + ',' + translateY + ') scale(' + scale + ')');
+		}
+	}
+	
+	/*
+	 * Shift the co-ordinate space of the entire universe to prevent floating point errors
+	 */	
+	function moveUniverse(x, y) {
+		var i;
+		for(i in Bullet.all) {
+			if(i !== 'length' && i != 'count') {
+				Bullet.all[i].x += x;
+				Bullet.all[i].y += y;
+			}
+		}
+		for(i in Fighter.all) {
+			if(i !== 'length' && i != 'count') {
+				Fighter.all[i].x += x;
+				Fighter.all[i].y += y;
+			}
+		}
+	}
+	
+	function getNextHighestPowerOf2(val) {
+		testVal = 0.5;
+		while(testVal < val) testVal *= 2;
+		return testVal;
+	}
+	
+	/**
+	 * Check to see if we have a winner, and run endgame sequence
+	 */
+	function checkForWinner() {
+		if(GAME_OVER) return;
+		fighterRemaining = false;
+		
+		if(Fighter.all.count == 1) {
+			var fighterRemaining;
+			for(i in Fighter.all) if(i != 'length' && i != 'count') {
+				fighterRemaining = Fighter.all[i];
+				break;
+			}
+
+			if(fighterRemaining)
+				document.getElementById('endGameText').appendChild(document.createTextNode(fighterRemaining.name + " WINS"));
+			else
+				document.getElementById('endGameText').appendChild(document.createTextNode("SOMEONE WINS"));
+			GAME_OVER = true;
+		
+		} else if(Fighter.all.count == 0) {
+			document.getElementById('endGameText').appendChild(document.createTextNode("DRAW"));
+			GAME_OVER = true;
+		}
+		
+		if(GAME_OVER) window.clearInterval(GAME_TIMER);
+	}
+
+	/**
+	 * Start-up script
+	 */
+	function init() {
+		WINDOW_WIDTH = Math.round(document.getElementById('gameArea').getAttribute('width'));
+		WINDOW_HEIGHT = Math.round(document.getElementById('gameArea').getAttribute('height'));
+		GAME_WIDTH = -1; // WINDOW_WIDTH * 10;
+		GAME_HEIGHT = -1; // WINDOW_HEIGHT * 10;
+
+		
+		if(window.location.href.match(/player=([^&]+)/))
+			CURRENT_PLAYER = RegExp.$1;
+		else
+			CURRENT_PLAYER = 0;
+		
+		// Initialise fighters
+		var f;
+		f = new Fighter("BLUE PLAYER",100,200,
+			createFighterEl("fill:rgb(0,0,255);stroke-width:0.1;stroke:rgb(30,30,255)"),
+			createStatusAreaEl(800,0,"fill:rgb(0,0,255);stroke-width:0.1;stroke:rgb(30,30,255)"));
+		if(f.allIdx == CURRENT_PLAYER) f.controlledBy(keyMaps[1]);	
+			
+		f = new Fighter("GREEN PLAYER",700,200,
+			createFighterEl("fill:rgb(0,255,0);stroke-width:0.1;stroke:rgb(30,255,30)"),
+			createStatusAreaEl(800,250,"fill:rgb(0,255,0);stroke-width:0.1;stroke:rgb(30,255,30)"));
+//		if(f.allIdx == CURRENT_PLAYER) f.controlledBy(keyMaps[1]);	
+		f.controlledBy(keyMaps[2]);	
+
+		/*
+		f = new Fighter("PINK PLAYER",100,400,
+			createFighterEl("fill:rgb(255,0,255);stroke-width:0.1;stroke:rgb(255,30,255)"),
+			createStatusAreaEl(950,0,"fill:rgb(255,0,255);stroke-width:0.1;stroke:rgb(255,30,255)"));
+		f.controlledBy(keyMaps[3]);	
+//		if(f.allIdx == CURRENT_PLAYER) f.controlledBy(keyMaps[1]);	
+		f = new Fighter("YELLOW PLAYER",700,400,
+			createFighterEl("fill:rgb(255,255,0);stroke-width:0.1;stroke:rgb(255,255,30)"),
+			createStatusAreaEl(950,250,"fill:rgb(255,255,0);stroke-width:0.1;stroke:rgb(255,255,30)"));
+		if(f.allIdx == CURRENT_PLAYER) f.controlledBy(keyMaps[1]);	
+//		f.controlledBy(keyMaps[4]);	
+		*/
+
+		// Initialise game timestep
+		GAME_TIMER = window.setInterval("gameTimeStep()", 50 / INPUT_RESPONSIVENESS);
+	}
+	
+	function createFighterEl(style) {
+		var el = document.getElementById('tmplFighter').cloneNode(true);
+		document.getElementById('gameObjects').appendChild(el);
+
+		var parts = getIDedDescendents(el);
+		parts.ship.setAttribute('style', style);
+		return el;
+	}
+	function getIDedDescendents(el) {
+		if(typeof el.getElementsByTagName != 'undefined') var allItems = el.getElementsByTagName('*');
+		else var allItems = el.getElementsByTagNameNS(SVG_NS,'*');
+
+		var i, id;
+		var result = {};		
+		for(i=0;i<allItems.length;i++) {
+			if(id = allItems.item(i).getAttribute('id')) result[id] = allItems.item(i);
+		}
+		return result;
+	}
+	
+	
+	function createStatusAreaEl(x,y,fighterStyle) {
+		var el = document.getElementById('tmplStatusArea').cloneNode(true);
+		document.getElementById('statusAreas').appendChild(el);
+		el.setAttribute('transform', 'translate(' + x + ',' + y + ')');
+
+		var parts = getIDedDescendents(el);
+		parts.radar.setAttribute('style', fighterStyle);
+
+		return el;
+	}
+	
+	/**
+	 * 50msec in the life of this game
+	 */
+	INTERNAL_TIMESTEP = -1;
+	DATEBASED_TIMESTEP = -1;
+	GLOBAL_TIMESTEP = null;
+	PING = 0;
+	
+	function gameTimeStep() {
+		INTERNAL_TIMESTEP++;
+		handleKeyPress(1,0);
+		tickAll(); 
+		adjustViewport(); 
+		checkForWinner();
+		
+		// if(INTERNAL_TIMESTEP % 2 == 0) networkCommunication();
+	}
+
+	var xmlhttp = null;
+
+	
+	function networkCommunication() {
+		if(xmlhttp != null) return;
+
+		var arguments;
+		if(TIME_DIFFERENTIAL != null) arguments = "timestep=" + getGlobalTimestep();
+		else arguments = "timestep=start";
+		arguments += "&internalTimestep=" + INTERNAL_TIMESTEP;
+		
+		arguments += "&player=" + CURRENT_PLAYER;
+		arguments += "&ping=" + PING;
+
+		arguments += "&x=" + Fighter.all[CURRENT_PLAYER].x + "&y=" + Fighter.all[CURRENT_PLAYER].y + "&speedX=" + Fighter.all[CURRENT_PLAYER].speedX + "&speedY=" + Fighter.all[CURRENT_PLAYER].speedY;
+		arguments += "&angle=" + Fighter.all[CURRENT_PLAYER].angle;
+
+		getURL('http://test.totallydigital.co.nz/svg_fighter/fighterServer.php?' + arguments, network_callback);
+	}
+	
+	/**
+	 * Returns the local estimate of the global timestep
+	 */
+	var TIME_DIFFERENTIAL = null;
+	function getGlobalTimestep() {
+		var val = (new Date().getTime() / 50);
+		if(TIME_DIFFERENTIAL != null) val += TIME_DIFFERENTIAL;
+		return val;
+	}
+	
+	function network_callback(text) {
+		if(text) {
+			// debug(INTERNAL_TIMESTEP + ", " + text);
+			result = parseUrlVars(text);
+	
+			// Calculate the difference between the server's clock and our clock
+			if(TIME_DIFFERENTIAL == null) {
+				var ping = (INTERNAL_TIMESTEP - result.global.internalTimestep);
+				TIME_DIFFERENTIAL = result.global.timestep - INTERNAL_TIMESTEP + (ping/2);
+			}
+
+			// debug( (INTERNAL_TIMESTEP + TIME_DIFFERENTIAL) + ", " + GLOBAL_TIMESTEP + ", " + TIME_DIFFERENTIAL);
+
+			delete result.global;
+
+			var time = getGlobalTimestep()
+			
+			// alert(result.player);
+			var player,attr;
+			for(player in result) {
+				if(Fighter.all[player]) {
+					for(attr in result[player]) {
+						Fighter.all[player][attr] = result[player][attr];
+					}
+					Fighter.all[player].x += Fighter.all[player].speedX * (result[player].timestep - time);
+					Fighter.all[player].y += Fighter.all[player].speedY * (result[player].timestep - time);
+				}
+			}
+			
+			//debug('update! ' + INTERNAL_TIMESTEP + ', ' + PING);
+		}
+	}
+	function parseUrlVars(text) {
+		var currentPlayer = 'global';
+		
+		var items = text.split('&');
+		var i, itemParts, result = { 'global' : {} };
+		for(var i=0;i<items.length;i++) {
+			itemParts = items[i].split('=');
+			if(itemParts[0] == 'player') {
+				currentPlayer = Math.round(itemParts[1]);
+				result[currentPlayer] = {}
+			} else {
+				result[currentPlayer][itemParts[0]] = itemParts[1] * 1.0;
+			}
+//			debug(text);
+		}
+		return result;
+	}
+	
+	/*
+	 * XMLHTTP based server communication
+	 */
+	var xmlhttp;
+	function getURL(url, callback) {
+		xmlhttp = new XMLHttpRequest();
+		xmlhttp.open("GET", url, true);
+		xmlhttp.send(null);
+		xmlhttp.callback = callback;
+		xmlhttp.onreadystatechange = getURL_check;
+	}
+	
+	function getURL_check() {
+		if(xmlhttp.readyState == 4) {
+			if(xmlhttp.status == 200) {
+				xmlhttp.callback(xmlhttp.responseText);
+			}	else {
+				debug(xmlhttp.status + ' code when requesting url');
+			}
+			xmlhttp = null;
+		}
+	}
+
+]]>
+</script>
+
+<defs>
+	
+	<g id="tmplStatusArea">
+		<rect x="0" y="0" width="150" height="250" fill="none" stroke="#000000" stroke-width="2" />
+		<circle cx="75" cy="75" r="70" fill="#000000" stroke="#000000" stroke-width="2">
+		</circle>
+		
+		<text x="5" y="180">shield</text>
+		<text x="5" y="210">ammo</text>
+		<text x="5" y="240">thrust</text>
+		
+		<rect x="52" y="164" width="92" height="22" stroke="#000000" stroke-width="2" fill="none" />
+		<rect x="52" y="194" width="92" height="22" stroke="#000000" stroke-width="2" fill="none" />
+		<rect x="52" y="224" width="92" height="22" stroke="#000000" stroke-width="2" fill="none" />
+
+		<g transform="translate(53,165)">
+			<rect id="shield" x="0" y="0" width="90" height="20" stroke="none" fill="#FF0000" />
+		</g>
+		<g transform="translate(53,195)">
+			<rect id="ammo" x="0" y="0" width="90" height="20" stroke="none" fill="#00FF00" />
+		</g>
+		<g transform="translate(53,225)">
+			<rect id="thrust" x="0" y="0" width="90" height="20" stroke="none" fill="#0000FF" />
+		</g>
+		
+		<use id="radar" xlink:href="#tmplFighter" transform="translate(75,75) rotate(50) scale(20)" />
+	</g>
+	
+	<g id="tmplBullet">
+	  <polygon points="0,0 0,20"  stroke="#FFFF00" stroke-width="2" fill="none" />
+	</g>
+	
+	<circle id="tmplExplosion" cx="0" cy="0" fill="#FFFF00" stroke-width="0" r="1" />
+	
+	<g id="tmplFighter">
+		<polygon id="thrust" points="0,1 0.35,0.4 0,0.2 -0.35,0.4" fill="#FFFF00" display="none" />
+		<polygon id="reverseThrust" points="0.5,-1 0.35,0.2 -0.35,0.2 -0.5,-1 0,0 " fill="#FFFF00" display="none" />
+		<polygon id="ship" points="0,-0.9 0.7,0.5 0,0.2 -0.7,0.5" />
+		<circle id="shield" cx="0" cy="0" r="1" style="fill:none;stroke-width:0.1;stroke:#00FFFF" display="none" />
+	</g>
+
+</defs>
+
+<rect id="gameArea" x="0" y="0" width="800" height="500" fill="#000000" stroke="#000000" stroke-width="2" />
+
+<g id="gameObjects">
+</g>
+
+<g id="statusAreas">
+</g>
+
+<text id="msg" x="10" y="10" fill="#FFFFFF"></text>
+<text id="endGameText" x="400" y="250" text-anchor="middle" font-size="50" fill="#FFFFFF"></text>
+
+<rect id="coverall" style="opacity:0" x="0" y="0" width="950" height="500" onkeydown="window_keydown(evt)" onkeyup="window_keyup(evt)"/>
+
+</svg>
