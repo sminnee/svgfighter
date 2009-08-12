@@ -1,0 +1,12 @@
+h1. SVG Fighter
+
+When SVG support was first added to browsers, I got all excited about the possibilities and made
+this simple space ship fighting game.  At a high level, the interface is inspired by Star Control.
+
+h2. Instructions
+ 
+ * Download
+ * Open fighter.svg in your browser
+ * Fight!
+ ** Blue player: Arrow keys to steer, and Enter to shoot
+ ** Green player: W, A, S, D to steer, and Control to shoot
